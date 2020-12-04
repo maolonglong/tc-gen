@@ -35,6 +35,8 @@ public class TestCaseGenerator {
     }
 
     public void start() {
+        clear();
+
         for (int caseId = 1; caseId <= property.numberOfGroups(); caseId++) {
             generate(caseId);
         }
@@ -42,6 +44,10 @@ public class TestCaseGenerator {
         if (property.enableZip()) {
             compress();
         }
+    }
+
+    private void clear() {
+        FileUtil.del(property.outputDir());
     }
 
     private void generate(int caseId) {
