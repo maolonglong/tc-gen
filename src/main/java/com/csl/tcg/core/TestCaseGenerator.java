@@ -12,8 +12,11 @@ import com.csl.tcg.property.GeneratorProperty;
 import com.csl.tcg.util.PropertyAutoInjector;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
@@ -64,32 +67,50 @@ public class TestCaseGenerator {
         }
 
         if (StrUtil.isNotBlank(property.command())) {
-            runCommand(inFilePath, outFilePath);
+
+            runCommand(inFilePath,outFilePath);
         }
     }
 
     private void runCommand(String inFilePath, String outFilePath) {
         Process process = RuntimeUtil.exec(property.command());
 
-        try (BufferedInputStream inFile = FileUtil.getInputStream(inFilePath);
-             BufferedOutputStream outFile = FileUtil.getOutputStream(outFilePath);
+        try (InputStream inFile = Files.newInputStream(Paths.get(inFilePath));
+             OutputStream outFile = Files.newOutputStream(Paths.get(outFilePath));
              OutputStream cin = process.getOutputStream();
              InputStream cout = process.getInputStream()) {
 
-            // .in 文件内容写进 exe 的标准输入
-            cin.write(IoUtil.readBytes(inFile));
-            cin.close();
+            // Read input file and write to process input stream
+            IoUtil.copy(inFile, cin);
 
-            // 从 exe 标准输出读结果, 写进 .out 文件
-            byte[] result = IoUtil.read(cout).toByteArray();
-
-            int exitCode = process.waitFor();
-
-            if (exitCode != 0) {
-                throw new RuntimeException("process exit with " + exitCode);
+            // Start a separate thread to consume process output stream
+            Thread outputThread = new Thread(() -> {
+                try {
+                    // Read process output stream, accumulate characters, and split by newline
+                    StringBuilder sb = new StringBuilder();
+                    int c;
+                    while ((c = cout.read()) != -1) {
+                        sb.append((char) c);
+                        if (c == '\n') {
+                            String line = sb.toString().trim();
+                            outFile.write(line.getBytes());
+                            outFile.write(System.lineSeparator().getBytes());
+                            sb.setLength(0);
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            });
+            outputThread.start();
+            double time;
+            if(property.time()==0){
+                time=1;
+            }else{
+                time=property.time();
             }
-
-            outFile.write(result);
+            // Wait for output thread to complete
+            outputThread.join((long) (time* 1000L));
 
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
@@ -97,6 +118,9 @@ public class TestCaseGenerator {
             process.destroy();
         }
     }
+
+
+
 
     private void compress() {
         String destPath = StrUtil.join("", property.outputDir(), File.separator, property.destDir());
