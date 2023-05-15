@@ -28,4 +28,6 @@ public class GeneratorProperty extends BaseProperty {
 
     private String command;
 
+    private double time;
+
 }
